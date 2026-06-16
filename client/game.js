@@ -11,7 +11,12 @@ const VEHICLE_SPIN_DURATION_MS = 1500;
 const WALL_SPIN_DURATION_MS = 500;
 const SPIN_RATE_DEG = 25; // degrees per frame while spinning out
 const MAX_NAME_LENGTH = 8;
-const TOTAL_LAPS = 5;
+
+// Must mirror the COLORS list in server/index.js (same order = same player gets same color).
+const COLORS = [
+  0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4,
+  0x46f0f0, 0xf032e6, 0xbcf60c, 0xfabebe, 0x008080, 0x9a6324,
+];
 
 let playerName = (window.prompt(`Enter your name (max ${MAX_NAME_LENGTH} characters):`, '') || '')
   .trim()
@@ -27,23 +32,23 @@ function roundedRectDist(px, py, cx, cy, halfW, halfH, radius) {
   return Math.sqrt(ax * ax + ay * ay) + Math.min(Math.max(qx, qy), 0) - radius;
 }
 
-// Track tiles: 0 = grass infield, 1 = road, 2 = crowd stands (outside the track).
-// A 4-tile-wide rounded-rectangle oval, Indy-speedway style, with double-radius corners.
-const TRACK_WIDTH_TILES = 4;
+// Track tiles: 0 = grass infield, 1 = road, 2 = finish line, 3 = crowd stands (outside the track).
+// A 6-tile-wide rounded-rectangle oval (50% wider than the original 4), Indy-speedway style.
+const TRACK_WIDTH_TILES = 6;
 const CENTER_X = (MAP_COLS * TILE) / 2;
 const CENTER_Y = (MAP_ROWS * TILE) / 2;
 const OUTER_HALF_W = (MAP_COLS / 2 - 1) * TILE;
 const OUTER_HALF_H = (MAP_ROWS / 2 - 1) * TILE;
-const OUTER_RADIUS = 8 * TILE; // doubled corner radius
+const OUTER_RADIUS = 8 * TILE;
 const THICKNESS = TRACK_WIDTH_TILES * TILE;
 const INNER_HALF_W = OUTER_HALF_W - THICKNESS;
 const INNER_HALF_H = OUTER_HALF_H - THICKNESS;
 const INNER_RADIUS = Math.max(OUTER_RADIUS - THICKNESS, 0);
 
 const FINISH_COL = MAP_COLS / 2;
-const FINISH_X = FINISH_COL * TILE + TILE / 2;
-const FINISH_Y_TOP = CENTER_Y - OUTER_HALF_H;
-const FINISH_Y_BOTTOM = CENTER_Y - INNER_HALF_H;
+const FINISH_X = FINISH_COL * TILE + TILE / 2; // must match server's FINISH_X
+const FINISH_Y_TOP = CENTER_Y - OUTER_HALF_H; // must match server's FINISH_Y_TOP
+const FINISH_Y_BOTTOM = CENTER_Y - INNER_HALF_H; // must match server's FINISH_Y_BOTTOM
 
 const MAP = [];
 for (let r = 0; r < MAP_ROWS; r++) {
@@ -57,11 +62,11 @@ for (let r = 0; r < MAP_ROWS; r++) {
       roundedRectDist(px, py, CENTER_X, CENTER_Y, INNER_HALF_W, INNER_HALF_H, INNER_RADIUS) <= 0;
     if (insideOuter && !insideInner) {
       const isFinish = c === FINISH_COL && r < MAP_ROWS / 2;
-      row.push(isFinish ? 2 : 1); // 1 = road, 2 = finish line
+      row.push(isFinish ? 2 : 1);
     } else if (insideInner) {
-      row.push(0); // infield grass
+      row.push(0);
     } else {
-      row.push(3); // crowd stands
+      row.push(3);
     }
   }
   MAP.push(row);
@@ -72,16 +77,20 @@ class MainScene extends Phaser.Scene {
     super('main');
     this.otherSprites = {};
     this.otherMeta = {};
-    this.heading = 0; // radians; 0 = facing up, increases clockwise
+    this.nameTexts = {};
+    this.heading = 0;
     this.spinUntil = 0;
     this.nextTurnAt = 0;
     this.raceStarted = false;
     this.myLaps = 0;
     this.finished = false;
+    this.totalLaps = 5;
+    this.myId = null;
+    this.lastLobbyPlayers = [];
+    this.resultsShowing = false;
   }
 
   preload() {
-    // Procedurally generated textures so we don't need external art assets.
     const g = this.make.graphics({ x: 0, y: 0, add: false });
 
     g.fillStyle(0x3a7d44, 1).fillRect(0, 0, TILE, TILE);
@@ -94,7 +103,6 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('road', TILE, TILE);
     g.clear();
 
-    // Checkered start/finish line.
     const checks = 4;
     const cs = TILE / checks;
     for (let i = 0; i < checks; i++) {
@@ -105,7 +113,6 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('finish', TILE, TILE);
     g.clear();
 
-    // Crowd stands: bleacher rows with small colorful dots representing spectators.
     const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933];
     g.fillStyle(0x6b5a44, 1).fillRect(0, 0, TILE, TILE);
     let colorIndex = 0;
@@ -122,40 +129,31 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('stands', TILE, TILE);
     g.clear();
 
-    this.drawVespa(g, 0x3399ff, 0xddeeff, 0xffffff);
-    g.generateTexture('player', SCOOTER_SIZE, SCOOTER_SIZE);
-    g.clear();
+    COLORS.forEach((color, i) => {
+      this.drawVespaSilhouette(g, color);
+      g.generateTexture(`vespa${i}`, SCOOTER_SIZE, SCOOTER_SIZE);
+      g.clear();
+    });
 
-    this.drawVespa(g, 0xff6633, 0xffe0cc, 0x222222);
-    g.generateTexture('otherPlayer', SCOOTER_SIZE, SCOOTER_SIZE);
     g.destroy();
   }
 
-  // Top-down Vespa scooter, facing "up" (front toward y=0), drawn for a SCOOTER_SIZE canvas.
-  drawVespa(g, bodyColor, panelColor, stripeColor) {
+  // Single-tone top-down scooter silhouette, facing "up" (front toward y=0).
+  drawVespaSilhouette(g, color) {
     const cx = SCOOTER_SIZE / 2;
     const cy = SCOOTER_SIZE / 2;
 
     g.fillStyle(0x222222, 1).fillRect(cx - 5, cy - 19, 10, 8); // front wheel
     g.fillStyle(0x222222, 1).fillRect(cx - 5, cy + 11, 10, 8); // rear wheel
-    g.fillStyle(0x888888, 1).fillCircle(cx, cy - 15, 2.5); // front wheel rim
-    g.fillStyle(0x888888, 1).fillCircle(cx, cy + 15, 2.5); // rear wheel rim
+    g.fillStyle(color, 1).fillEllipse(cx, cy, 17, 20); // body
+    g.fillStyle(color, 1).fillEllipse(cx, cy - 11, 9, 9); // front fairing
+    g.fillStyle(color, 1).fillEllipse(cx, cy + 9, 10, 7); // seat hump
+    g.fillStyle(0xffffff, 1).fillCircle(cx, cy - 17, 2.5); // headlight
+  }
 
-    g.fillStyle(bodyColor, 1).fillEllipse(cx, cy, 17, 20); // body
-    g.fillStyle(stripeColor, 1).fillRect(cx - 8.5, cy - 2, 17, 4); // racing stripe
-
-    g.fillStyle(panelColor, 1).fillEllipse(cx, cy - 11, 9, 9); // front fairing
-    g.fillStyle(0x222222, 1).fillEllipse(cx, cy + 9, 10, 7); // seat
-
-    g.fillStyle(0xffffaa, 1).fillCircle(cx, cy - 17, 2.5); // headlight
-    g.fillStyle(0xcc2222, 1).fillCircle(cx, cy + 17, 2); // taillight
-
-    g.fillStyle(0x222222, 1).fillCircle(cx - 9, cy - 13, 2); // left mirror
-    g.fillStyle(0x222222, 1).fillCircle(cx + 9, cy - 13, 2); // right mirror
-
-    g.fillStyle(0xdddddd, 1).fillRect(cx - 4, cy + 19, 8, 3); // license plate
-
-    g.fillStyle(0x444444, 1).fillRect(cx + 8, cy + 6, 3, 8); // exhaust pipe
+  textureForColor(color) {
+    const idx = COLORS.indexOf(color);
+    return `vespa${idx >= 0 ? idx : 0}`;
   }
 
   create() {
@@ -175,9 +173,13 @@ class MainScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-
     this.otherPlayersGroup = this.physics.add.group();
-    this.nameTexts = {};
+
+    this.physics.world.setBounds(0, 0, MAP_COLS * TILE, MAP_ROWS * TILE);
+
+    const zoom = Math.min(this.scale.width / (MAP_COLS * TILE), this.scale.height / (MAP_ROWS * TILE));
+    this.cameras.main.setZoom(Math.min(zoom, 1));
+    this.cameras.main.centerOn(CENTER_X, CENTER_Y);
 
     this.statusText = this.add
       .text(this.scale.width / 2, 24, '', {
@@ -191,32 +193,46 @@ class MainScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(1000);
 
-    document.getElementById('readyBtn').addEventListener('click', () => this.startCountdown());
+    this.lobbyOverlay = document.getElementById('lobbyOverlay');
+    this.lobbyList = document.getElementById('lobbyList');
+    this.lobbyStatus = document.getElementById('lobbyStatus');
+    this.readyBtn = document.getElementById('readyBtn');
+    this.resultsOverlay = document.getElementById('resultsOverlay');
+    this.resultsList = document.getElementById('resultsList');
+    this.finishBtn = document.getElementById('finishBtn');
 
-    this.socket = io({ query: { name: playerName } });
-    this.myId = null;
-
-    this.socket.on('init', ({ id, players }) => {
-      this.myId = id;
-      const me = players[id];
-      this.prevX = me.x;
-      this.player = this.physics.add.image(me.x, me.y, 'player').setCollideWorldBounds(true);
-      this.physics.add.collider(this.player, this.boundaries, (player, wallTile) =>
-        this.triggerSpin(WALL_SPIN_DURATION_MS, wallTile.x, wallTile.y, TILE * 0.75)
-      );
-      this.physics.add.overlap(this.player, this.otherPlayersGroup, (player, other) =>
-        this.triggerSpin(VEHICLE_SPIN_DURATION_MS, other.x, other.y, TILE * 1.25)
-      );
-      this.cameras.main.startFollow(this.player, true);
-      this.myNameText = this.addNameLabel(me.x, me.y);
-      this.updateMyLabel();
-
-      Object.entries(players).forEach(([pid, state]) => {
-        if (pid !== id) this.addOther(pid, state);
-      });
+    this.readyBtn.addEventListener('click', () => {
+      this.socket.emit('ready');
+      this.readyBtn.disabled = true;
+      this.lobbyStatus.textContent = 'Waiting for other racers...';
     });
 
-    this.socket.on('playerJoined', ({ id, state }) => this.addOther(id, state));
+    this.finishBtn.addEventListener('click', () => {
+      this.resultsShowing = false;
+      this.resultsOverlay.style.display = 'none';
+      this.renderLobby(this.lastLobbyPlayers);
+      this.lobbyOverlay.style.display = 'flex';
+    });
+
+    this.socket = io({ query: { name: playerName } });
+
+    this.socket.on('init', ({ id, totalLaps, players }) => {
+      this.myId = id;
+      this.totalLaps = totalLaps;
+      this.lastLobbyPlayers = players;
+      this.renderLobby(players);
+    });
+
+    this.socket.on('lobbyState', ({ players }) => {
+      this.lastLobbyPlayers = players;
+      if (!this.resultsShowing) this.renderLobby(players);
+    });
+
+    this.socket.on('raceStarting', ({ countdownMs, grid }) => this.beginRace(grid, countdownMs));
+
+    this.socket.on('raceStarted', () => {
+      this.raceStarted = true;
+    });
 
     this.socket.on('playerMoved', ({ id, state }) => {
       const sprite = this.otherSprites[id];
@@ -246,15 +262,128 @@ class MainScene extends Phaser.Scene {
       delete this.otherMeta[id];
     });
 
-    this.physics.world.setBounds(0, 0, MAP_COLS * TILE, MAP_ROWS * TILE);
+    this.socket.on('raceResults', ({ standings }) => {
+      this.resultsShowing = true;
+      this.renderResults(standings);
+      this.lobbyOverlay.style.display = 'none';
+      this.resultsOverlay.style.display = 'flex';
+    });
+
     this.lastSent = { x: 0, y: 0, rotation: 0, laps: 0 };
   }
 
-  startCountdown() {
-    document.getElementById('readyOverlay').style.display = 'none';
-    let count = 3;
-    this.statusText.setText(String(count));
+  renderLobby(playersList) {
+    this.lobbyList.innerHTML = '';
+    let me = null;
+    playersList.forEach((p) => {
+      if (p.id === this.myId) me = p;
+      const li = document.createElement('li');
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = p.color != null ? `#${p.color.toString(16).padStart(6, '0')}` : '#666';
+      const label = document.createElement('span');
+      label.textContent = p.name;
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = p.slot === 'spectator' ? 'Spectating' : p.ready ? 'Ready' : 'Not Ready';
+      li.append(swatch, label, tag);
+      this.lobbyList.appendChild(li);
+    });
 
+    if (me && me.slot === 'racer') {
+      this.readyBtn.style.display = 'inline-block';
+      this.readyBtn.disabled = me.ready;
+      this.lobbyStatus.textContent = me.ready ? 'Waiting for other racers...' : '';
+    } else {
+      this.readyBtn.style.display = 'none';
+      this.lobbyStatus.textContent = "You're spectating — the first 12 players race.";
+    }
+  }
+
+  renderResults(standings) {
+    this.resultsList.innerHTML = '';
+    standings.forEach((s) => {
+      const li = document.createElement('li');
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = s.color != null ? `#${s.color.toString(16).padStart(6, '0')}` : '#666';
+      const label = document.createElement('span');
+      label.textContent = `${s.rank}. ${s.name}`;
+      li.append(swatch, label);
+      this.resultsList.appendChild(li);
+    });
+  }
+
+  beginRace(grid, countdownMs) {
+    // Clear sprites/labels from any previous race.
+    if (this.player) {
+      this.player.destroy();
+      this.player = null;
+    }
+    if (this.myNameText) {
+      this.myNameText.destroy();
+      this.myNameText = null;
+    }
+    Object.values(this.nameTexts).forEach((t) => t.destroy());
+    this.otherPlayersGroup.clear(true, true); // also destroys the contained sprites
+    this.otherSprites = {};
+    this.otherMeta = {};
+    this.nameTexts = {};
+
+    this.heading = 0;
+    this.spinUntil = 0;
+    this.nextTurnAt = 0;
+    this.raceStarted = false;
+    this.myLaps = 0;
+    this.finished = false;
+
+    let isRacing = false;
+
+    grid.forEach((entry) => {
+      const texture = this.textureForColor(entry.color);
+      if (entry.id === this.myId) {
+        isRacing = true;
+        this.heading = entry.rotation;
+        this.prevX = entry.x;
+        this.player = this.physics.add
+          .image(entry.x, entry.y, texture)
+          .setCollideWorldBounds(true);
+        this.player.rotation = entry.rotation;
+        this.physics.add.collider(this.player, this.boundaries, (player, wallTile) =>
+          this.triggerSpin(WALL_SPIN_DURATION_MS, wallTile.x, wallTile.y, TILE * 0.75)
+        );
+        this.physics.add.overlap(this.player, this.otherPlayersGroup, (player, other) =>
+          this.triggerSpin(VEHICLE_SPIN_DURATION_MS, other.x, other.y, TILE * 1.25)
+        );
+        this.cameras.main.setZoom(1);
+        this.cameras.main.startFollow(this.player, true);
+        this.myNameText = this.addNameLabel(entry.x, entry.y);
+        this.updateMyLabel();
+      } else {
+        const sprite = this.physics.add.image(entry.x, entry.y, texture);
+        sprite.body.setAllowGravity(false);
+        sprite.body.moves = false;
+        sprite.rotation = entry.rotation;
+        this.otherSprites[entry.id] = sprite;
+        this.otherPlayersGroup.add(sprite);
+        this.otherMeta[entry.id] = { name: entry.name, laps: 0 };
+        this.nameTexts[entry.id] = this.addNameLabel(entry.x, entry.y);
+        this.updateOtherLabel(entry.id);
+      }
+    });
+
+    if (!isRacing) {
+      // Spectating this race: keep the wide fitted camera view.
+      const zoom = Math.min(this.scale.width / (MAP_COLS * TILE), this.scale.height / (MAP_ROWS * TILE));
+      this.cameras.main.setZoom(Math.min(zoom, 1));
+      this.cameras.main.centerOn(CENTER_X, CENTER_Y);
+    }
+
+    this.lobbyOverlay.style.display = 'none';
+    this.resultsOverlay.style.display = 'none';
+
+    let count = Math.round(countdownMs / 1000);
+    this.statusText.setText(String(count));
     const tick = () => {
       count--;
       if (count > 0) {
@@ -262,7 +391,6 @@ class MainScene extends Phaser.Scene {
         this.time.delayedCall(1000, tick);
       } else {
         this.statusText.setText('GO!');
-        this.raceStarted = true;
         this.time.delayedCall(800, () => this.statusText.setText(''));
       }
     };
@@ -282,33 +410,20 @@ class MainScene extends Phaser.Scene {
   }
 
   updateMyLabel() {
-    if (this.myNameText) this.myNameText.setText(`${playerName} ${this.myLaps}/${TOTAL_LAPS}`);
+    if (this.myNameText) this.myNameText.setText(`${playerName} ${this.myLaps}/${this.totalLaps}`);
   }
 
   updateOtherLabel(id) {
     const label = this.nameTexts[id];
     const meta = this.otherMeta[id];
-    if (label && meta) label.setText(`${meta.name} ${meta.laps}/${TOTAL_LAPS}`);
-  }
-
-  addOther(id, state) {
-    const sprite = this.physics.add.image(state.x, state.y, 'otherPlayer');
-    sprite.body.setAllowGravity(false);
-    sprite.body.moves = false; // remote players are positioned by network updates, not physics
-    if (typeof state.rotation === 'number') sprite.rotation = state.rotation;
-    this.otherSprites[id] = sprite;
-    this.otherPlayersGroup.add(sprite);
-    this.otherMeta[id] = { name: state.name || 'Player', laps: state.laps || 0 };
-    this.nameTexts[id] = this.addNameLabel(state.x, state.y);
-    this.updateOtherLabel(id);
+    if (label && meta) label.setText(`${meta.name} ${meta.laps}/${this.totalLaps}`);
   }
 
   triggerSpin(durationMs, awayFromX, awayFromY, pushDist) {
     const now = this.time.now;
-    if (now < this.spinUntil) return; // already spinning, don't re-trigger
+    if (now < this.spinUntil) return;
     this.spinUntil = now + durationMs;
 
-    // Push away from the collision source so the spin doesn't immediately re-trigger.
     const dx = this.player.x - awayFromX;
     const dy = this.player.y - awayFromY;
     const dist = Math.max(Math.hypot(dx, dy), 0.01);
@@ -318,15 +433,14 @@ class MainScene extends Phaser.Scene {
   }
 
   checkLapCrossing(prevX, currX, currY) {
-    if (this.myLaps >= TOTAL_LAPS) return;
+    if (this.myLaps >= this.totalLaps) return;
     const inBand = currY >= FINISH_Y_TOP && currY <= FINISH_Y_BOTTOM;
     if (!inBand) return;
 
-    // Only crossing right-to-left (counterclockwise) counts as completing a lap.
     if (prevX > FINISH_X && currX <= FINISH_X) {
       this.myLaps++;
       this.updateMyLabel();
-      if (this.myLaps >= TOTAL_LAPS) {
+      if (this.myLaps >= this.totalLaps) {
         this.finished = true;
         this.statusText.setText('FINISHED!');
         this.time.delayedCall(3000, () => this.statusText.setText(''));

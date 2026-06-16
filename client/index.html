@@ -4,34 +4,74 @@
   <meta charset="UTF-8" />
   <title>Vesparado</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
+    html, body { margin: 0; padding: 0; background: #111; overflow: hidden; font-family: sans-serif; }
     #game { display: block; margin: 0 auto; }
-    #readyOverlay {
+
+    .overlay {
       position: fixed;
       inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.7);
       z-index: 10;
     }
-    #readyBtn {
-      font-size: 24px;
-      padding: 16px 32px;
+    .panel {
+      background: #1c1c1c;
+      color: white;
+      padding: 24px 32px;
+      border-radius: 10px;
+      min-width: 320px;
+      max-width: 90vw;
+      text-align: center;
+    }
+    .panel h2 { margin-top: 0; }
+    #lobbyList, #resultsList { list-style: none; padding: 0; margin: 16px 0; text-align: left; }
+    #lobbyList li, #resultsList li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      background: #2a2a2a;
+    }
+    .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; display: inline-block; }
+    .tag { margin-left: auto; font-size: 12px; opacity: 0.8; }
+    button.actionBtn {
+      font-size: 20px;
+      padding: 12px 28px;
       border-radius: 8px;
       border: none;
       background: #3399ff;
       color: white;
       cursor: pointer;
     }
-    #readyBtn:hover { background: #2277dd; }
+    button.actionBtn:disabled { background: #555; cursor: default; }
+    button.actionBtn:not(:disabled):hover { background: #2277dd; }
+    #lobbyStatus { opacity: 0.8; margin-top: 8px; min-height: 1.2em; }
   </style>
 </head>
 <body>
   <div id="game"></div>
-  <div id="readyOverlay">
-    <button id="readyBtn">Ready to Race</button>
+
+  <div id="lobbyOverlay" class="overlay">
+    <div class="panel">
+      <h2>Vesparado Lobby</h2>
+      <ul id="lobbyList"></ul>
+      <button id="readyBtn" class="actionBtn">Ready to Race</button>
+      <p id="lobbyStatus"></p>
+    </div>
   </div>
+
+  <div id="resultsOverlay" class="overlay" style="display: none;">
+    <div class="panel">
+      <h2>Race Results</h2>
+      <ol id="resultsList"></ol>
+      <button id="finishBtn" class="actionBtn">Finish</button>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
