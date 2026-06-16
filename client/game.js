@@ -100,19 +100,9 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('grass', TILE, TILE);
     g.clear();
 
-    const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933];
+    // Plain bleacher base color; the crowd detail is painted on top as a
+    // continuous overlay in create() so it doesn't look like a repeating tile.
     g.fillStyle(0x6b5a44, 1).fillRect(0, 0, TILE, TILE);
-    let colorIndex = 0;
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 4; col++) {
-        g.fillStyle(crowdColors[colorIndex % crowdColors.length], 1).fillCircle(
-          col * (TILE / 4) + TILE / 8,
-          row * (TILE / 3) + TILE / 6,
-          2
-        );
-        colorIndex++;
-      }
-    }
     g.generateTexture('stands', TILE, TILE);
     g.clear();
 
@@ -190,12 +180,56 @@ class MainScene extends Phaser.Scene {
       Math.max(INNER_RADIUS, 0.01)
     );
 
-    // Checkered start/finish line across the track width.
-    const finishChecks = 5;
-    const finishCheckHeight = (FINISH_Y_BOTTOM - FINISH_Y_TOP) / finishChecks;
-    for (let i = 0; i < finishChecks; i++) {
-      trackGfx.fillStyle(i % 2 === 0 ? 0x000000 : 0xffffff, 1);
-      trackGfx.fillRect(FINISH_X - TILE / 2, FINISH_Y_TOP + i * finishCheckHeight, TILE, finishCheckHeight);
+    // Checkered-flag start/finish line: a true two-axis checkerboard of small squares.
+    const finishSquare = 6;
+    const finishWidth = TILE;
+    const finishHeight = FINISH_Y_BOTTOM - FINISH_Y_TOP;
+    const finishCols = Math.round(finishWidth / finishSquare);
+    const finishRows = Math.round(finishHeight / finishSquare);
+    for (let j = 0; j < finishRows; j++) {
+      for (let i = 0; i < finishCols; i++) {
+        trackGfx.fillStyle((i + j) % 2 === 0 ? 0x000000 : 0xffffff, 1);
+        trackGfx.fillRect(
+          FINISH_X - finishWidth / 2 + i * finishSquare,
+          FINISH_Y_TOP + j * finishSquare,
+          finishSquare,
+          finishSquare
+        );
+      }
+    }
+
+    // Crowd in the stands: bench-tier lines plus scattered spectators, painted
+    // as one continuous overlay across the whole stands area (not per-tile)
+    // so it doesn't read as an obviously repeating texture.
+    const standsGfx = this.add.graphics();
+    const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933, 0xdd66dd, 0x66ddcc];
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (MAP[r][c] !== 3) continue;
+        const x0 = c * TILE;
+        const y0 = r * TILE;
+
+        standsGfx.lineStyle(1, 0x4a3a28, 0.8);
+        for (let line = 1; line < 3; line++) {
+          const ly = y0 + (TILE / 3) * line;
+          standsGfx.beginPath();
+          standsGfx.moveTo(x0, ly);
+          standsGfx.lineTo(x0 + TILE, ly);
+          standsGfx.strokePath();
+        }
+
+        for (let k = 0; k < 7; k++) {
+          const px = x0 + 3 + Math.random() * (TILE - 6);
+          const py = y0 + 3 + Math.random() * (TILE - 6);
+          const radius = 1.1 + Math.random() * 1.4;
+          standsGfx.fillStyle(0x222222, 0.55).fillEllipse(px, py + radius * 1.4, radius * 1.8, radius); // shoulders
+          standsGfx.fillStyle(crowdColors[Math.floor(Math.random() * crowdColors.length)], 1).fillCircle(
+            px,
+            py,
+            radius
+          ); // head
+        }
+      }
     }
 
     this.cursors = this.input.keyboard.createCursorKeys();
