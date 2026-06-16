@@ -11,6 +11,7 @@ const VEHICLE_SPIN_DURATION_MS = 1500;
 const WALL_SPIN_DURATION_MS = 500;
 const SPIN_RATE_DEG = 25; // degrees per frame while spinning out
 const MAX_NAME_LENGTH = 8;
+const COLLISION_RADIUS = SCOOTER_SIZE * 0.18; // much smaller than the full sprite
 
 // Must mirror the COLORS list in server/index.js (same order = same player gets same color).
 const COLORS = [
@@ -154,6 +155,11 @@ class MainScene extends Phaser.Scene {
   textureForColor(color) {
     const idx = COLORS.indexOf(color);
     return `vespa${idx >= 0 ? idx : 0}`;
+  }
+
+  setSmallHitbox(sprite) {
+    const offset = SCOOTER_SIZE / 2 - COLLISION_RADIUS;
+    sprite.body.setCircle(COLLISION_RADIUS, offset, offset);
   }
 
   create() {
@@ -349,6 +355,7 @@ class MainScene extends Phaser.Scene {
           .image(entry.x, entry.y, texture)
           .setCollideWorldBounds(true);
         this.player.rotation = entry.rotation;
+        this.setSmallHitbox(this.player);
         this.physics.add.collider(this.player, this.boundaries, (player, wallTile) =>
           this.triggerSpin(WALL_SPIN_DURATION_MS, wallTile.x, wallTile.y, TILE * 0.75)
         );
@@ -364,6 +371,7 @@ class MainScene extends Phaser.Scene {
         sprite.body.setAllowGravity(false);
         sprite.body.moves = false;
         sprite.rotation = entry.rotation;
+        this.setSmallHitbox(sprite);
         this.otherSprites[entry.id] = sprite;
         this.otherPlayersGroup.add(sprite);
         this.otherMeta[entry.id] = { name: entry.name, laps: 0 };
