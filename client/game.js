@@ -100,20 +100,6 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('grass', TILE, TILE);
     g.clear();
 
-    g.fillStyle(0x3d3d3d, 1).fillRect(0, 0, TILE, TILE);
-    g.generateTexture('road', TILE, TILE);
-    g.clear();
-
-    const checks = 4;
-    const cs = TILE / checks;
-    for (let i = 0; i < checks; i++) {
-      for (let j = 0; j < checks; j++) {
-        g.fillStyle((i + j) % 2 === 0 ? 0x000000 : 0xffffff, 1).fillRect(i * cs, j * cs, cs, cs);
-      }
-    }
-    g.generateTexture('finish', TILE, TILE);
-    g.clear();
-
     const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933];
     g.fillStyle(0x6b5a44, 1).fillRect(0, 0, TILE, TILE);
     let colorIndex = 0;
@@ -139,17 +125,24 @@ class MainScene extends Phaser.Scene {
     g.destroy();
   }
 
-  // Single-tone top-down scooter silhouette, facing "up" (front toward y=0).
+  // Side-profile Vespa silhouette (like a classic scooter icon), drawn vertically
+  // so the "front" still points toward y=0 — keeping it consistent with the
+  // existing heading/rotation math even though it reads as a side view.
   drawVespaSilhouette(g, color) {
     const cx = SCOOTER_SIZE / 2;
     const cy = SCOOTER_SIZE / 2;
 
-    g.fillStyle(0x222222, 1).fillRect(cx - 5, cy - 19, 10, 8); // front wheel
-    g.fillStyle(0x222222, 1).fillRect(cx - 5, cy + 11, 10, 8); // rear wheel
-    g.fillStyle(color, 1).fillEllipse(cx, cy, 17, 20); // body
-    g.fillStyle(color, 1).fillEllipse(cx, cy - 11, 9, 9); // front fairing
-    g.fillStyle(color, 1).fillEllipse(cx, cy + 9, 10, 7); // seat hump
-    g.fillStyle(0xffffff, 1).fillCircle(cx, cy - 17, 2.5); // headlight
+    g.fillStyle(0x111111, 1).fillCircle(cx, cy - 16, 5); // front wheel
+    g.fillStyle(0x111111, 1).fillCircle(cx, cy + 16, 5); // rear wheel
+    g.fillStyle(0x333333, 1).fillCircle(cx, cy - 16, 2); // front hub
+    g.fillStyle(0x333333, 1).fillCircle(cx, cy + 16, 2); // rear hub
+
+    g.fillStyle(color, 1).fillEllipse(cx, cy, 7, 15); // main body silhouette
+    g.fillStyle(color, 1).fillEllipse(cx, cy - 12, 6, 6); // front leg shield
+    g.fillStyle(color, 1).fillEllipse(cx, cy + 10, 7, 6); // rear seat hump
+    g.fillStyle(color, 1).fillRect(cx - 2, cy - 22, 4, 6); // handlebar stem
+
+    g.fillStyle(0xffffff, 1).fillCircle(cx, cy - 15, 2); // headlight
   }
 
   textureForColor(color) {
@@ -163,18 +156,46 @@ class MainScene extends Phaser.Scene {
   }
 
   create() {
+    // Background tiles: only the off-track cells (grass infield / crowd stands).
+    // The track surface itself is drawn separately below as a smooth vector
+    // shape so the curves aren't limited to the blocky tile grid.
     this.boundaries = this.physics.add.staticGroup();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const cell = MAP[r][c];
         const isRoad = cell === 1 || cell === 2;
-        const tex = cell === 2 ? 'finish' : cell === 1 ? 'road' : cell === 0 ? 'grass' : 'stands';
+        if (isRoad) continue;
+        const tex = cell === 0 ? 'grass' : 'stands';
         const tile = this.add.image(c * TILE + TILE / 2, r * TILE + TILE / 2, tex);
-        if (!isRoad) {
-          this.physics.add.existing(tile, true);
-          this.boundaries.add(tile);
-        }
+        this.physics.add.existing(tile, true);
+        this.boundaries.add(tile);
       }
+    }
+
+    const trackGfx = this.add.graphics();
+    trackGfx.fillStyle(0x3d3d3d, 1);
+    trackGfx.fillRoundedRect(
+      CENTER_X - OUTER_HALF_W,
+      CENTER_Y - OUTER_HALF_H,
+      OUTER_HALF_W * 2,
+      OUTER_HALF_H * 2,
+      OUTER_RADIUS
+    );
+    trackGfx.fillStyle(0x3a7d44, 1);
+    trackGfx.fillRoundedRect(
+      CENTER_X - INNER_HALF_W,
+      CENTER_Y - INNER_HALF_H,
+      INNER_HALF_W * 2,
+      INNER_HALF_H * 2,
+      Math.max(INNER_RADIUS, 0.01)
+    );
+
+    // Checkered start/finish line across the track width.
+    const finishChecks = 5;
+    const finishCheckHeight = (FINISH_Y_BOTTOM - FINISH_Y_TOP) / finishChecks;
+    for (let i = 0; i < finishChecks; i++) {
+      trackGfx.fillStyle(i % 2 === 0 ? 0x000000 : 0xffffff, 1);
+      trackGfx.fillRect(FINISH_X - TILE / 2, FINISH_Y_TOP + i * finishCheckHeight, TILE, finishCheckHeight);
     }
 
     this.cursors = this.input.keyboard.createCursorKeys();
