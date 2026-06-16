@@ -373,15 +373,16 @@ class MainScene extends Phaser.Scene {
 
     this.socket = io({ query: { name: playerName } });
 
-    this.socket.on('init', ({ id, phase, totalLaps, players }) => {
+    this.socket.on('init', ({ id, phase, totalLaps, players, activeRacers }) => {
       this.myId = id;
       this.totalLaps = totalLaps;
       this.lastLobbyPlayers = players;
       this.renderLobby(players);
       // Joining mid-race (e.g. as a spectator) — there's no lobby to show yet,
-      // so get the overlay out of the way and let them watch the track.
+      // so get the overlay out of the way and show the racers already on track.
       if (phase === 'countdown' || phase === 'racing') {
         this.lobbyOverlay.style.display = 'none';
+        this.spectateActiveRace(activeRacers || []);
       }
     });
 
@@ -474,6 +475,25 @@ class MainScene extends Phaser.Scene {
       label.textContent = `${s.rank}. ${s.name}`;
       li.append(swatch, label);
       this.resultsList.appendChild(li);
+    });
+  }
+
+  // Build sprites for racers already on track, for a client that connected
+  // mid-race (so it never received the original 'raceStarting' broadcast).
+  spectateActiveRace(activeRacers) {
+    activeRacers.forEach((entry) => {
+      if (entry.id === this.myId || this.otherSprites[entry.id]) return;
+      const texture = this.textureForColor(entry.color);
+      const sprite = this.physics.add.image(entry.x, entry.y, texture);
+      sprite.body.setAllowGravity(false);
+      sprite.body.moves = false;
+      sprite.rotation = entry.rotation;
+      this.setSmallHitbox(sprite);
+      this.otherSprites[entry.id] = sprite;
+      this.otherPlayersGroup.add(sprite);
+      this.otherMeta[entry.id] = { name: entry.name, laps: entry.laps || 0 };
+      this.nameTexts[entry.id] = this.addNameLabel(entry.x, entry.y);
+      this.updateOtherLabel(entry.id);
     });
   }
 

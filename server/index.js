@@ -167,7 +167,21 @@ io.on('connection', (socket) => {
 
   if (phase === 'lobby') recalcSlots();
 
-  socket.emit('init', { id: socket.id, phase, totalLaps: TOTAL_LAPS, players: publicPlayers() });
+  const activeRacers =
+    phase === 'countdown' || phase === 'racing'
+      ? racingOrder
+          .map((id) => players.get(id))
+          .filter(Boolean)
+          .map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, y: p.y, rotation: p.rotation, laps: p.laps }))
+      : [];
+
+  socket.emit('init', {
+    id: socket.id,
+    phase,
+    totalLaps: TOTAL_LAPS,
+    players: publicPlayers(),
+    activeRacers,
+  });
   broadcastLobby();
 
   socket.on('ready', () => {
