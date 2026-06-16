@@ -504,12 +504,9 @@ class MainScene extends Phaser.Scene {
     this.myLaps = 0;
     this.finished = false;
 
-    let isRacing = false;
-
     grid.forEach((entry) => {
       const texture = this.textureForColor(entry.color);
       if (entry.id === this.myId) {
-        isRacing = true;
         this.heading = entry.rotation;
         this.prevX = entry.x;
         this.player = this.physics.add
@@ -523,8 +520,6 @@ class MainScene extends Phaser.Scene {
         this.physics.add.overlap(this.player, this.otherPlayersGroup, (player, other) =>
           this.triggerSpin(VEHICLE_SPIN_DURATION_MS, other.x, other.y, TILE * 1.25)
         );
-        this.cameras.main.setZoom(1);
-        this.cameras.main.startFollow(this.player, true);
         this.myNameText = this.addNameLabel(entry.x, entry.y);
         this.updateMyLabel();
       } else {
@@ -541,12 +536,10 @@ class MainScene extends Phaser.Scene {
       }
     });
 
-    if (!isRacing) {
-      // Spectating this race: keep the wide fitted camera view.
-      const zoom = Math.min(this.scale.width / (MAP_COLS * TILE), this.scale.height / (MAP_ROWS * TILE));
-      this.cameras.main.setZoom(Math.min(zoom, 1));
-      this.cameras.main.centerOn(CENTER_X, CENTER_Y);
-    }
+    // Always show the whole track, for racers and spectators alike — no close-up follow camera.
+    const zoom = Math.min(this.scale.width / (MAP_COLS * TILE), this.scale.height / (MAP_ROWS * TILE));
+    this.cameras.main.setZoom(Math.min(zoom, 1));
+    this.cameras.main.centerOn(CENTER_X, CENTER_Y);
 
     this.lobbyOverlay.style.display = 'none';
     this.resultsOverlay.style.display = 'none';
