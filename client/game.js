@@ -1,9 +1,15 @@
 const TILE = 32;
 const MAP_COLS = 25;
 const MAP_ROWS = 19;
-const SPEED = 160;
 
-// 0 = grass, 1 = road. A rectangular road loop with a cross-street through the middle.
+const FORWARD_SPEED = 160;
+const REVERSE_SPEED = 90;
+const TURN_STEP_DEG = 30;
+const TURN_INTERVAL_MS = 140; // time between discrete 30-degree steering steps
+const SPIN_DURATION_MS = 3000;
+const SPIN_RATE_DEG = 25; // degrees per frame while spinning out
+
+// 0 = grass (off-track), 1 = road. A 2-tile-wide rectangular track loop with a cross-street.
 const ROAD_MARGIN = 3;
 const MAP = [];
 for (let r = 0; r < MAP_ROWS; r++) {
@@ -11,10 +17,18 @@ for (let r = 0; r < MAP_ROWS; r++) {
   for (let c = 0; c < MAP_COLS; c++) {
     const onLoop =
       r === ROAD_MARGIN ||
+      r === ROAD_MARGIN + 1 ||
       r === MAP_ROWS - 1 - ROAD_MARGIN ||
+      r === MAP_ROWS - 2 - ROAD_MARGIN ||
       c === ROAD_MARGIN ||
-      c === MAP_COLS - 1 - ROAD_MARGIN;
-    const onCross = r === Math.floor(MAP_ROWS / 2) || c === Math.floor(MAP_COLS / 2);
+      c === ROAD_MARGIN + 1 ||
+      c === MAP_COLS - 1 - ROAD_MARGIN ||
+      c === MAP_COLS - 2 - ROAD_MARGIN;
+    const onCross =
+      r === Math.floor(MAP_ROWS / 2) ||
+      r === Math.floor(MAP_ROWS / 2) - 1 ||
+      c === Math.floor(MAP_COLS / 2) ||
+      c === Math.floor(MAP_COLS / 2) - 1;
     row.push(onLoop || onCross ? 1 : 0);
   }
   MAP.push(row);
@@ -24,6 +38,9 @@ class MainScene extends Phaser.Scene {
   constructor() {
     super('main');
     this.otherSprites = {};
+    this.heading = 0; // radians; 0 = facing up, increases clockwise
+    this.spinUntil = 0;
+    this.nextTurnAt = 0;
   }
 
   preload() {
@@ -56,38 +73,34 @@ class MainScene extends Phaser.Scene {
     const cx = TILE / 2;
     const cy = TILE / 2;
 
-    // Rear wheel
-    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy + 8, 8, 6);
-    // Front wheel
-    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy - 14, 8, 6);
-
-    // Main body (rounded, teardrop-ish via ellipse)
-    g.fillStyle(bodyColor, 1).fillEllipse(cx, cy, 14, 22);
-
-    // Front fairing/shield panel
-    g.fillStyle(panelColor, 1).fillEllipse(cx, cy - 7, 8, 8);
-
-    // Seat
-    g.fillStyle(0x222222, 1).fillEllipse(cx, cy + 5, 9, 6);
-
-    // Headlight
-    g.fillStyle(0xffffaa, 1).fillCircle(cx, cy - 12, 2);
-
-    // Mirrors
-    g.fillStyle(0x222222, 1).fillCircle(cx - 7, cy - 9, 1.5);
-    g.fillStyle(0x222222, 1).fillCircle(cx + 7, cy - 9, 1.5);
+    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy + 8, 8, 6); // rear wheel
+    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy - 14, 8, 6); // front wheel
+    g.fillStyle(bodyColor, 1).fillEllipse(cx, cy, 14, 22); // body
+    g.fillStyle(panelColor, 1).fillEllipse(cx, cy - 7, 8, 8); // fairing
+    g.fillStyle(0x222222, 1).fillEllipse(cx, cy + 5, 9, 6); // seat
+    g.fillStyle(0xffffaa, 1).fillCircle(cx, cy - 12, 2); // headlight
+    g.fillStyle(0x222222, 1).fillCircle(cx - 7, cy - 9, 1.5); // mirror
+    g.fillStyle(0x222222, 1).fillCircle(cx + 7, cy - 9, 1.5); // mirror
   }
 
   create() {
+    this.boundaries = this.physics.add.staticGroup();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
-        const tex = MAP[r][c] === 1 ? 'road' : 'grass';
-        this.add.image(c * TILE + TILE / 2, r * TILE + TILE / 2, tex);
+        const isRoad = MAP[r][c] === 1;
+        const tex = isRoad ? 'road' : 'grass';
+        const tile = this.add.image(c * TILE + TILE / 2, r * TILE + TILE / 2, tex);
+        if (!isRoad) {
+          this.physics.add.existing(tile, true);
+          this.boundaries.add(tile);
+        }
       }
     }
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+
+    this.otherPlayersGroup = this.physics.add.group();
 
     this.socket = io();
     this.myId = null;
@@ -96,6 +109,8 @@ class MainScene extends Phaser.Scene {
       this.myId = id;
       const me = players[id];
       this.player = this.physics.add.image(me.x, me.y, 'player').setCollideWorldBounds(true);
+      this.physics.add.collider(this.player, this.boundaries);
+      this.physics.add.overlap(this.player, this.otherPlayersGroup, () => this.triggerSpin());
       this.cameras.main.startFollow(this.player, true);
 
       Object.entries(players).forEach(([pid, state]) => {
@@ -126,29 +141,43 @@ class MainScene extends Phaser.Scene {
   }
 
   addOther(id, state) {
-    const sprite = this.add.image(state.x, state.y, 'otherPlayer');
+    const sprite = this.physics.add.image(state.x, state.y, 'otherPlayer');
+    sprite.body.setAllowGravity(false);
+    sprite.body.moves = false; // remote players are positioned by network updates, not physics
     if (typeof state.rotation === 'number') sprite.rotation = state.rotation;
     this.otherSprites[id] = sprite;
+    this.otherPlayersGroup.add(sprite);
   }
 
-  update() {
+  triggerSpin() {
+    const now = this.time.now;
+    if (now < this.spinUntil) return; // already spinning, don't re-trigger
+    this.spinUntil = now + SPIN_DURATION_MS;
+  }
+
+  update(time) {
     if (!this.player) return;
 
-    const left = this.cursors.left.isDown || this.wasd.A.isDown;
-    const right = this.cursors.right.isDown || this.wasd.D.isDown;
-    const up = this.cursors.up.isDown || this.wasd.W.isDown;
-    const down = this.cursors.down.isDown || this.wasd.S.isDown;
+    const spinning = time < this.spinUntil;
 
-    const body = this.player.body;
-    body.setVelocity(0);
-    if (left) body.setVelocityX(-SPEED);
-    else if (right) body.setVelocityX(SPEED);
-    if (up) body.setVelocityY(-SPEED);
-    else if (down) body.setVelocityY(SPEED);
-    body.velocity.normalize().scale(SPEED * (left || right || up || down ? 1 : 0));
+    if (spinning) {
+      this.heading += Phaser.Math.DegToRad(SPIN_RATE_DEG);
+      this.player.rotation = this.heading;
+      this.player.body.setVelocity(0, 0);
+    } else {
+      const left = this.cursors.left.isDown || this.wasd.A.isDown;
+      const right = this.cursors.right.isDown || this.wasd.D.isDown;
+      const up = this.cursors.up.isDown || this.wasd.W.isDown;
+      const down = this.cursors.down.isDown || this.wasd.S.isDown;
 
-    if (body.velocity.x !== 0 || body.velocity.y !== 0) {
-      this.player.rotation = Math.atan2(body.velocity.y, body.velocity.x) + Math.PI / 2;
+      if ((left || right) && time >= this.nextTurnAt) {
+        this.heading += Phaser.Math.DegToRad(TURN_STEP_DEG) * (right ? 1 : -1);
+        this.nextTurnAt = time + TURN_INTERVAL_MS;
+      }
+
+      const speed = up ? FORWARD_SPEED : down ? -REVERSE_SPEED : 0;
+      this.player.rotation = this.heading;
+      this.player.body.setVelocity(Math.sin(this.heading) * speed, -Math.cos(this.heading) * speed);
     }
 
     const { x, y, rotation } = this.player;
