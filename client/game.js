@@ -362,7 +362,7 @@ class MainScene extends Phaser.Scene {
       if (standings.length > 1) {
         const lastPlace = standings[standings.length - 1];
         this.resultsOverlay.style.display = 'none';
-        this.loserMessage.textContent = `${lastPlace.name} finished last! What a cunt!`;
+        this.loserMessage.textContent = `${lastPlace.name} finished last!`;
         this.loserOverlay.style.display = 'flex';
       } else {
         returnToLobby();
