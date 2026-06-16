@@ -373,11 +373,16 @@ class MainScene extends Phaser.Scene {
 
     this.socket = io({ query: { name: playerName } });
 
-    this.socket.on('init', ({ id, totalLaps, players }) => {
+    this.socket.on('init', ({ id, phase, totalLaps, players }) => {
       this.myId = id;
       this.totalLaps = totalLaps;
       this.lastLobbyPlayers = players;
       this.renderLobby(players);
+      // Joining mid-race (e.g. as a spectator) — there's no lobby to show yet,
+      // so get the overlay out of the way and let them watch the track.
+      if (phase === 'countdown' || phase === 'racing') {
+        this.lobbyOverlay.style.display = 'none';
+      }
     });
 
     this.socket.on('lobbyState', ({ players }) => {
