@@ -3,14 +3,19 @@ const MAP_COLS = 25;
 const MAP_ROWS = 19;
 const SPEED = 160;
 
-// 0 = floor, 1 = wall. Border walls plus a couple of obstacles.
+// 0 = grass, 1 = road. A rectangular road loop with a cross-street through the middle.
+const ROAD_MARGIN = 3;
 const MAP = [];
 for (let r = 0; r < MAP_ROWS; r++) {
   const row = [];
   for (let c = 0; c < MAP_COLS; c++) {
-    const isBorder = r === 0 || c === 0 || r === MAP_ROWS - 1 || c === MAP_COLS - 1;
-    const isPillar = (r === 5 && c >= 8 && c <= 12) || (r === 13 && c >= 8 && c <= 12);
-    row.push(isBorder || isPillar ? 1 : 0);
+    const onLoop =
+      r === ROAD_MARGIN ||
+      r === MAP_ROWS - 1 - ROAD_MARGIN ||
+      c === ROAD_MARGIN ||
+      c === MAP_COLS - 1 - ROAD_MARGIN;
+    const onCross = r === Math.floor(MAP_ROWS / 2) || c === Math.floor(MAP_COLS / 2);
+    row.push(onLoop || onCross ? 1 : 0);
   }
   MAP.push(row);
 }
@@ -26,11 +31,15 @@ class MainScene extends Phaser.Scene {
     const g = this.make.graphics({ x: 0, y: 0, add: false });
 
     g.fillStyle(0x3a7d44, 1).fillRect(0, 0, TILE, TILE);
-    g.generateTexture('floor', TILE, TILE);
+    g.fillStyle(0x2f6a37, 1).fillCircle(TILE * 0.25, TILE * 0.3, 2);
+    g.fillStyle(0x2f6a37, 1).fillCircle(TILE * 0.7, TILE * 0.65, 2);
+    g.generateTexture('grass', TILE, TILE);
     g.clear();
 
-    g.fillStyle(0x555555, 1).fillRect(0, 0, TILE, TILE);
-    g.generateTexture('wall', TILE, TILE);
+    g.fillStyle(0x3d3d3d, 1).fillRect(0, 0, TILE, TILE);
+    g.fillStyle(0xeeeeee, 1).fillRect(TILE / 2 - 1.5, TILE * 0.15, 3, TILE * 0.3);
+    g.fillStyle(0xeeeeee, 1).fillRect(TILE / 2 - 1.5, TILE * 0.65, 3, TILE * 0.3);
+    g.generateTexture('road', TILE, TILE);
     g.clear();
 
     this.drawVespa(g, 0x3399ff, 0xddeeff);
@@ -70,15 +79,10 @@ class MainScene extends Phaser.Scene {
   }
 
   create() {
-    this.walls = this.physics.add.staticGroup();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
-        const tex = MAP[r][c] === 1 ? 'wall' : 'floor';
-        const tile = this.add.image(c * TILE + TILE / 2, r * TILE + TILE / 2, tex);
-        if (MAP[r][c] === 1) {
-          this.physics.add.existing(tile, true);
-          this.walls.add(tile);
-        }
+        const tex = MAP[r][c] === 1 ? 'road' : 'grass';
+        this.add.image(c * TILE + TILE / 2, r * TILE + TILE / 2, tex);
       }
     }
 
@@ -92,7 +96,6 @@ class MainScene extends Phaser.Scene {
       this.myId = id;
       const me = players[id];
       this.player = this.physics.add.image(me.x, me.y, 'player').setCollideWorldBounds(true);
-      this.physics.add.collider(this.player, this.walls);
       this.cameras.main.startFollow(this.player, true);
 
       Object.entries(players).forEach(([pid, state]) => {
