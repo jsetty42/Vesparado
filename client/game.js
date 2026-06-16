@@ -110,7 +110,9 @@ class MainScene extends Phaser.Scene {
       const me = players[id];
       this.player = this.physics.add.image(me.x, me.y, 'player').setCollideWorldBounds(true);
       this.physics.add.collider(this.player, this.boundaries);
-      this.physics.add.overlap(this.player, this.otherPlayersGroup, () => this.triggerSpin());
+      this.physics.add.overlap(this.player, this.otherPlayersGroup, (player, other) =>
+        this.triggerSpin(other)
+      );
       this.cameras.main.startFollow(this.player, true);
 
       Object.entries(players).forEach(([pid, state]) => {
@@ -149,10 +151,20 @@ class MainScene extends Phaser.Scene {
     this.otherPlayersGroup.add(sprite);
   }
 
-  triggerSpin() {
+  triggerSpin(other) {
     const now = this.time.now;
     if (now < this.spinUntil) return; // already spinning, don't re-trigger
     this.spinUntil = now + SPIN_DURATION_MS;
+
+    // Push apart so the two scooters no longer overlap once the spin ends,
+    // otherwise the overlap would immediately re-trigger another spin.
+    const dx = this.player.x - other.x;
+    const dy = this.player.y - other.y;
+    const dist = Math.max(Math.hypot(dx, dy), 0.01);
+    const pushDist = TILE * 1.25;
+    const newX = this.player.x + (dx / dist) * pushDist;
+    const newY = this.player.y + (dy / dist) * pushDist;
+    this.player.body.reset(newX, newY);
   }
 
   update(time) {
