@@ -13,6 +13,12 @@ const SPIN_RATE_DEG = 25; // degrees per frame while spinning out
 const MAX_NAME_LENGTH = 8;
 const COLLISION_RADIUS = SCOOTER_SIZE * 0.18; // much smaller than the full sprite
 
+// Fixed logical viewport the camera renders (independent of the physical screen
+// size). Phaser's FIT scale mode then scales this to fit any device/orientation.
+const VIEW_W = 480;
+const VIEW_H = 320;
+const IS_TOUCH_DEVICE = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
 // Must mirror the COLORS list in server/index.js (same order = same player gets same color).
 const COLORS = [
   0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4,
@@ -145,6 +151,34 @@ class MainScene extends Phaser.Scene {
     sprite.body.setCircle(COLLISION_RADIUS, offset, offset);
   }
 
+  setupTouchControls() {
+    if (!IS_TOUCH_DEVICE) return;
+    document.getElementById('touchControls').style.display = 'block';
+
+    const bind = (id, key) => {
+      const el = document.getElementById(id);
+      const setDown = (e) => {
+        e.preventDefault();
+        this.touch[key] = true;
+      };
+      const setUp = (e) => {
+        e.preventDefault();
+        this.touch[key] = false;
+      };
+      el.addEventListener('touchstart', setDown, { passive: false });
+      el.addEventListener('touchend', setUp, { passive: false });
+      el.addEventListener('touchcancel', setUp, { passive: false });
+      el.addEventListener('mousedown', setDown);
+      el.addEventListener('mouseup', setUp);
+      el.addEventListener('mouseleave', setUp);
+    };
+
+    bind('steerLeft', 'left');
+    bind('steerRight', 'right');
+    bind('throttle', 'up');
+    bind('brake', 'down');
+  }
+
   create() {
     // Background tiles: only the off-track cells (grass infield / crowd stands).
     // The track surface itself is drawn separately below as a smooth vector
@@ -234,6 +268,8 @@ class MainScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+    this.touch = { left: false, right: false, up: false, down: false };
+    this.setupTouchControls();
     this.otherPlayersGroup = this.physics.add.group();
 
     this.physics.world.setBounds(0, 0, MAP_COLS * TILE, MAP_ROWS * TILE);
@@ -523,10 +559,10 @@ class MainScene extends Phaser.Scene {
       this.player.rotation = this.heading;
       this.player.body.setVelocity(0, 0);
     } else {
-      const left = this.cursors.left.isDown || this.wasd.A.isDown;
-      const right = this.cursors.right.isDown || this.wasd.D.isDown;
-      const up = this.cursors.up.isDown || this.wasd.W.isDown;
-      const down = this.cursors.down.isDown || this.wasd.S.isDown;
+      const left = this.cursors.left.isDown || this.wasd.A.isDown || this.touch.left;
+      const right = this.cursors.right.isDown || this.wasd.D.isDown || this.touch.right;
+      const up = this.cursors.up.isDown || this.wasd.W.isDown || this.touch.up;
+      const down = this.cursors.down.isDown || this.wasd.S.isDown || this.touch.down;
 
       if ((left || right) && time >= this.nextTurnAt) {
         this.heading += Phaser.Math.DegToRad(TURN_STEP_DEG) * (right ? 1 : -1);
@@ -562,8 +598,12 @@ class MainScene extends Phaser.Scene {
 new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: Math.min(MAP_COLS * TILE, window.innerWidth),
-  height: Math.min(MAP_ROWS * TILE, window.innerHeight),
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: VIEW_W,
+    height: VIEW_H,
+  },
   physics: { default: 'arcade', arcade: { debug: false } },
   scene: MainScene,
 });

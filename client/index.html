@@ -2,9 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Vesparado</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #111; overflow: hidden; font-family: sans-serif; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      overflow: hidden;
+      font-family: sans-serif;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
     #game { display: block; margin: 0 auto; }
 
     .overlay {
@@ -15,17 +25,22 @@
       justify-content: center;
       background: rgba(0, 0, 0, 0.7);
       z-index: 10;
+      padding: 16px;
+      box-sizing: border-box;
     }
     .panel {
       background: #1c1c1c;
       color: white;
-      padding: 24px 32px;
+      padding: 20px 24px;
       border-radius: 10px;
-      min-width: 320px;
-      max-width: 90vw;
+      width: 100%;
+      max-width: 360px;
+      max-height: 85vh;
+      overflow-y: auto;
       text-align: center;
+      box-sizing: border-box;
     }
-    .panel h2 { margin-top: 0; }
+    .panel h2 { margin-top: 0; font-size: clamp(18px, 5vw, 24px); }
     #lobbyList, #resultsList { list-style: none; padding: 0; margin: 16px 0; text-align: left; }
     #lobbyList li, #resultsList li {
       display: flex;
@@ -35,25 +50,63 @@
       border-radius: 6px;
       margin-bottom: 4px;
       background: #2a2a2a;
+      font-size: clamp(13px, 3.5vw, 15px);
     }
     .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; display: inline-block; }
     .tag { margin-left: auto; font-size: 12px; opacity: 0.8; }
     button.actionBtn {
-      font-size: 20px;
+      font-size: clamp(16px, 4.5vw, 20px);
       padding: 12px 28px;
       border-radius: 8px;
       border: none;
       background: #3399ff;
       color: white;
       cursor: pointer;
+      touch-action: manipulation;
     }
     button.actionBtn:disabled { background: #555; cursor: default; }
     button.actionBtn:not(:disabled):hover { background: #2277dd; }
-    #lobbyStatus { opacity: 0.8; margin-top: 8px; min-height: 1.2em; }
+    #lobbyStatus { opacity: 0.8; margin-top: 8px; min-height: 1.2em; font-size: 14px; }
+
+    #touchControls {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .touchBtn {
+      position: absolute;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      color: white;
+      font-size: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      touch-action: none;
+      pointer-events: auto;
+    }
+    .touchBtn:active { background: rgba(255, 255, 255, 0.35); }
+    #steerLeft { left: 16px; bottom: 32px; }
+    #steerRight { left: 96px; bottom: 32px; }
+    #throttle { right: 16px; bottom: 104px; }
+    #brake { right: 16px; bottom: 32px; }
   </style>
 </head>
 <body>
   <div id="game"></div>
+
+  <div id="touchControls">
+    <div id="steerLeft" class="touchBtn">&#8592;</div>
+    <div id="steerRight" class="touchBtn">&#8594;</div>
+    <div id="throttle" class="touchBtn">&#9650;</div>
+    <div id="brake" class="touchBtn">&#9660;</div>
+  </div>
 
   <div id="lobbyOverlay" class="overlay">
     <div class="panel">
