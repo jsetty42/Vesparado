@@ -92,6 +92,7 @@ class MainScene extends Phaser.Scene {
     this.raceStarted = false;
     this.myLaps = 0;
     this.finished = false;
+    this.crossedStartLine = false;
     this.totalLaps = 5;
     this.myId = null;
     this.lastLobbyPlayers = [];
@@ -474,6 +475,7 @@ class MainScene extends Phaser.Scene {
     this.raceStarted = false;
     this.myLaps = 0;
     this.finished = false;
+    this.crossedStartLine = false;
 
     grid.forEach((entry) => {
       const texture = this.textureForColor(entry.color);
@@ -571,6 +573,13 @@ class MainScene extends Phaser.Scene {
     if (!inBand) return;
 
     if (prevX > FINISH_X && currX <= FINISH_X) {
+      if (!this.crossedStartLine) {
+        // The grid start is positioned just behind the line, so the very
+        // first crossing right after the race begins is the start itself,
+        // not a completed lap.
+        this.crossedStartLine = true;
+        return;
+      }
       this.myLaps++;
       this.updateMyLabel();
       if (this.myLaps >= this.totalLaps) {
