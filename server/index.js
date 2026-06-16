@@ -8,7 +8,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
-const SPAWN = { x: 400, y: 300 };
+const SPAWN = { x: 480, y: 96 }; // top straight of the speedway oval
 
 app.use(express.static(path.join(__dirname, '..', 'client')));
 

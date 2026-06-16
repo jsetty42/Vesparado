@@ -1,6 +1,6 @@
 const TILE = 32;
-const MAP_COLS = 25;
-const MAP_ROWS = 19;
+const MAP_COLS = 30;
+const MAP_ROWS = 20;
 
 const FORWARD_SPEED = 160;
 const REVERSE_SPEED = 90;
@@ -9,27 +9,38 @@ const TURN_INTERVAL_MS = 140; // time between discrete 30-degree steering steps
 const SPIN_DURATION_MS = 3000;
 const SPIN_RATE_DEG = 25; // degrees per frame while spinning out
 
-// 0 = grass (off-track), 1 = road. A 2-tile-wide rectangular track loop with a cross-street.
-const ROAD_MARGIN = 3;
+// Signed-distance test for a rounded rectangle centered at (cx, cy). <= 0 means inside.
+function roundedRectDist(px, py, cx, cy, halfW, halfH, radius) {
+  const qx = Math.abs(px - cx) - (halfW - radius);
+  const qy = Math.abs(py - cy) - (halfH - radius);
+  const ax = Math.max(qx, 0);
+  const ay = Math.max(qy, 0);
+  return Math.sqrt(ax * ax + ay * ay) + Math.min(Math.max(qx, qy), 0) - radius;
+}
+
+// 0 = grass (off-track), 1 = road. A 4-tile-wide rounded-rectangle oval, Indy-speedway style.
+const TRACK_WIDTH_TILES = 4;
+const CENTER_X = (MAP_COLS * TILE) / 2;
+const CENTER_Y = (MAP_ROWS * TILE) / 2;
+const OUTER_HALF_W = (MAP_COLS / 2 - 1) * TILE;
+const OUTER_HALF_H = (MAP_ROWS / 2 - 1) * TILE;
+const OUTER_RADIUS = 4 * TILE;
+const THICKNESS = TRACK_WIDTH_TILES * TILE;
+const INNER_HALF_W = OUTER_HALF_W - THICKNESS;
+const INNER_HALF_H = OUTER_HALF_H - THICKNESS;
+const INNER_RADIUS = Math.max(OUTER_RADIUS - THICKNESS, 0);
+
 const MAP = [];
 for (let r = 0; r < MAP_ROWS; r++) {
   const row = [];
   for (let c = 0; c < MAP_COLS; c++) {
-    const onLoop =
-      r === ROAD_MARGIN ||
-      r === ROAD_MARGIN + 1 ||
-      r === MAP_ROWS - 1 - ROAD_MARGIN ||
-      r === MAP_ROWS - 2 - ROAD_MARGIN ||
-      c === ROAD_MARGIN ||
-      c === ROAD_MARGIN + 1 ||
-      c === MAP_COLS - 1 - ROAD_MARGIN ||
-      c === MAP_COLS - 2 - ROAD_MARGIN;
-    const onCross =
-      r === Math.floor(MAP_ROWS / 2) ||
-      r === Math.floor(MAP_ROWS / 2) - 1 ||
-      c === Math.floor(MAP_COLS / 2) ||
-      c === Math.floor(MAP_COLS / 2) - 1;
-    row.push(onLoop || onCross ? 1 : 0);
+    const px = c * TILE + TILE / 2;
+    const py = r * TILE + TILE / 2;
+    const insideOuter =
+      roundedRectDist(px, py, CENTER_X, CENTER_Y, OUTER_HALF_W, OUTER_HALF_H, OUTER_RADIUS) <= 0;
+    const insideInner =
+      roundedRectDist(px, py, CENTER_X, CENTER_Y, INNER_HALF_W, INNER_HALF_H, INNER_RADIUS) <= 0;
+    row.push(insideOuter && !insideInner ? 1 : 0);
   }
   MAP.push(row);
 }
