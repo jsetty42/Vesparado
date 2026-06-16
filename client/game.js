@@ -33,13 +33,40 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('wall', TILE, TILE);
     g.clear();
 
-    g.fillStyle(0x3399ff, 1).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 4);
+    this.drawVespa(g, 0x3399ff, 0xddeeff);
     g.generateTexture('player', TILE, TILE);
     g.clear();
 
-    g.fillStyle(0xff6633, 1).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 4);
+    this.drawVespa(g, 0xff6633, 0xffe0cc);
     g.generateTexture('otherPlayer', TILE, TILE);
     g.destroy();
+  }
+
+  // Top-down Vespa scooter, facing "up" (front toward y=0) at native rotation.
+  drawVespa(g, bodyColor, panelColor) {
+    const cx = TILE / 2;
+    const cy = TILE / 2;
+
+    // Rear wheel
+    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy + 8, 8, 6);
+    // Front wheel
+    g.fillStyle(0x222222, 1).fillRect(cx - 4, cy - 14, 8, 6);
+
+    // Main body (rounded, teardrop-ish via ellipse)
+    g.fillStyle(bodyColor, 1).fillEllipse(cx, cy, 14, 22);
+
+    // Front fairing/shield panel
+    g.fillStyle(panelColor, 1).fillEllipse(cx, cy - 7, 8, 8);
+
+    // Seat
+    g.fillStyle(0x222222, 1).fillEllipse(cx, cy + 5, 9, 6);
+
+    // Headlight
+    g.fillStyle(0xffffaa, 1).fillCircle(cx, cy - 12, 2);
+
+    // Mirrors
+    g.fillStyle(0x222222, 1).fillCircle(cx - 7, cy - 9, 1.5);
+    g.fillStyle(0x222222, 1).fillCircle(cx + 7, cy - 9, 1.5);
   }
 
   create() {
@@ -77,7 +104,10 @@ class MainScene extends Phaser.Scene {
 
     this.socket.on('playerMoved', ({ id, state }) => {
       const sprite = this.otherSprites[id];
-      if (sprite) sprite.setPosition(state.x, state.y);
+      if (sprite) {
+        sprite.setPosition(state.x, state.y);
+        if (typeof state.rotation === 'number') sprite.rotation = state.rotation;
+      }
     });
 
     this.socket.on('playerLeft', ({ id }) => {
@@ -89,11 +119,13 @@ class MainScene extends Phaser.Scene {
     });
 
     this.physics.world.setBounds(0, 0, MAP_COLS * TILE, MAP_ROWS * TILE);
-    this.lastSent = { x: 0, y: 0 };
+    this.lastSent = { x: 0, y: 0, rotation: 0 };
   }
 
   addOther(id, state) {
-    this.otherSprites[id] = this.add.image(state.x, state.y, 'otherPlayer');
+    const sprite = this.add.image(state.x, state.y, 'otherPlayer');
+    if (typeof state.rotation === 'number') sprite.rotation = state.rotation;
+    this.otherSprites[id] = sprite;
   }
 
   update() {
@@ -112,10 +144,18 @@ class MainScene extends Phaser.Scene {
     else if (down) body.setVelocityY(SPEED);
     body.velocity.normalize().scale(SPEED * (left || right || up || down ? 1 : 0));
 
-    const { x, y } = this.player;
-    if (Math.abs(x - this.lastSent.x) > 1 || Math.abs(y - this.lastSent.y) > 1) {
-      this.lastSent = { x, y };
-      this.socket.emit('move', { x, y, dir: 'down' });
+    if (body.velocity.x !== 0 || body.velocity.y !== 0) {
+      this.player.rotation = Math.atan2(body.velocity.y, body.velocity.x) + Math.PI / 2;
+    }
+
+    const { x, y, rotation } = this.player;
+    if (
+      Math.abs(x - this.lastSent.x) > 1 ||
+      Math.abs(y - this.lastSent.y) > 1 ||
+      rotation !== this.lastSent.rotation
+    ) {
+      this.lastSent = { x, y, rotation };
+      this.socket.emit('move', { x, y, rotation });
     }
   }
 }
