@@ -173,10 +173,56 @@ class MainScene extends Phaser.Scene {
       el.addEventListener('mouseleave', setUp);
     };
 
-    bind('steerLeft', 'left');
-    bind('steerRight', 'right');
     bind('throttle', 'up');
     bind('brake', 'down');
+    this.setupJoystick();
+  }
+
+  setupJoystick() {
+    const base = document.getElementById('joystickBase');
+    const knob = document.getElementById('joystickKnob');
+    const maxRadius = 35;
+    let activePointerId = null;
+
+    const updateFromPoint = (clientX, clientY) => {
+      const rect = base.getBoundingClientRect();
+      const dx0 = clientX - (rect.left + rect.width / 2);
+      const dy0 = clientY - (rect.top + rect.height / 2);
+      const dist = Math.hypot(dx0, dy0);
+      const scale = dist > maxRadius ? maxRadius / dist : 1;
+      const dx = dx0 * scale;
+      const dy = dy0 * scale;
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+
+      const norm = dx / maxRadius;
+      this.touch.left = norm < -0.3;
+      this.touch.right = norm > 0.3;
+    };
+
+    const reset = () => {
+      knob.style.transform = 'translate(0px, 0px)';
+      this.touch.left = false;
+      this.touch.right = false;
+      activePointerId = null;
+    };
+
+    base.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      activePointerId = e.pointerId;
+      base.setPointerCapture(e.pointerId);
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    base.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== activePointerId) return;
+      e.preventDefault();
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    const endHandler = (e) => {
+      if (e.pointerId !== activePointerId) return;
+      reset();
+    };
+    base.addEventListener('pointerup', endHandler);
+    base.addEventListener('pointercancel', endHandler);
   }
 
   create() {
@@ -196,6 +242,62 @@ class MainScene extends Phaser.Scene {
       }
     }
 
+    // Crowd in the stands: tiered seating that steps back and darkens with
+    // distance from the track. Each tier is drawn as a smooth offset of the
+    // track's own rounded-rectangle shape (not tile squares), so the stands
+    // curve through the corners exactly like the track does.
+    const standsGfx = this.add.graphics();
+    const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933, 0xdd66dd, 0x66ddcc];
+    const tierColors = [0x9c8262, 0x83694c, 0x6a533a, 0x513e2a, 0x3a2c1e];
+    const tierDepth = 22; // px of outward distance per tier
+
+    const fillOffsetRing = (offset, color) => {
+      const halfW = OUTER_HALF_W + offset;
+      const halfH = OUTER_HALF_H + offset;
+      const radius = OUTER_RADIUS + offset;
+      standsGfx.fillStyle(color, 1);
+      standsGfx.fillRoundedRect(CENTER_X - halfW, CENTER_Y - halfH, halfW * 2, halfH * 2, radius);
+    };
+
+    // Draw farthest-back tier first (oversized so it covers all the way to the
+    // map corners), then layer progressively nearer/lighter tiers on top.
+    fillOffsetRing(tierDepth * (tierColors.length - 1) + 999, tierColors[tierColors.length - 1]);
+    for (let i = tierColors.length - 2; i >= 0; i--) {
+      fillOffsetRing(tierDepth * (i + 1), tierColors[i]);
+    }
+
+    // Scattered spectators, denser and larger near the front rows.
+    const crowdMaxDist = tierDepth * 3;
+    for (let y = 0; y < MAP_ROWS * TILE; y += 6) {
+      for (let x = 0; x < MAP_COLS * TILE; x += 6) {
+        const d = roundedRectDist(x, y, CENTER_X, CENTER_Y, OUTER_HALF_W, OUTER_HALF_H, OUTER_RADIUS);
+        if (d <= 3 || d > crowdMaxDist || Math.random() > 0.35) continue;
+        const tier = Phaser.Math.Clamp(Math.floor(d / tierDepth), 0, tierColors.length - 1);
+        const sizeScale = 1 - tier * 0.15;
+        const radius = (1 + Math.random() * 1.3) * sizeScale;
+        const px = x + (Math.random() - 0.5) * 6;
+        const py = y + (Math.random() - 0.5) * 6;
+        standsGfx.fillStyle(0x000000, 0.5).fillEllipse(px, py + radius * 1.4, radius * 1.8, radius); // shoulders
+        standsGfx.fillStyle(crowdColors[Math.floor(Math.random() * crowdColors.length)], 1).fillCircle(
+          px,
+          py,
+          radius
+        ); // head
+      }
+    }
+
+    // Front safety railing right at the track's outer edge.
+    standsGfx.lineStyle(2, 0xdddddd, 0.85);
+    standsGfx.strokeRoundedRect(
+      CENTER_X - OUTER_HALF_W,
+      CENTER_Y - OUTER_HALF_H,
+      OUTER_HALF_W * 2,
+      OUTER_HALF_H * 2,
+      OUTER_RADIUS
+    );
+
+    // The track surface is drawn last (on top of the stands) as a smooth
+    // vector shape, so its curves aren't limited by the blocky tile grid.
     const trackGfx = this.add.graphics();
     trackGfx.fillStyle(0x3d3d3d, 1);
     trackGfx.fillRoundedRect(
@@ -231,64 +333,6 @@ class MainScene extends Phaser.Scene {
         );
       }
     }
-
-    // Crowd in the stands: tiered seating that steps back and darkens with
-    // distance from the track (simulating rising bleacher rows / depth),
-    // a front safety railing along the track edge, and scattered spectators
-    // whose density and size fall off in the back rows for a parallax feel.
-    const standsGfx = this.add.graphics();
-    const crowdColors = [0xffcc00, 0xff5555, 0x55aaff, 0xffffff, 0x55cc55, 0xff9933, 0xdd66dd, 0x66ddcc];
-    const tierColors = [0x9c8262, 0x83694c, 0x6a533a, 0x513e2a, 0x3a2c1e];
-    const tierDepth = 22; // px of "outward distance" per tier
-
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (MAP[r][c] !== 3) continue;
-        const x0 = c * TILE;
-        const y0 = r * TILE;
-        const cxp = x0 + TILE / 2;
-        const cyp = y0 + TILE / 2;
-
-        const distOutside = roundedRectDist(
-          cxp,
-          cyp,
-          CENTER_X,
-          CENTER_Y,
-          OUTER_HALF_W,
-          OUTER_HALF_H,
-          OUTER_RADIUS
-        );
-        const tier = Phaser.Math.Clamp(Math.floor(distOutside / tierDepth), 0, tierColors.length - 1);
-
-        standsGfx.fillStyle(tierColors[tier], 1).fillRect(x0, y0, TILE, TILE);
-        standsGfx.fillStyle(0x000000, 0.18).fillRect(x0, y0, TILE, 2); // step shadow at the rise of each tier
-        standsGfx.fillStyle(0xffffff, 0.06).fillRect(x0, y0 + TILE - 2, TILE, 2); // subtle step highlight
-
-        const crowdCount = Math.max(2, 7 - tier * 1.3);
-        const sizeScale = 1 - tier * 0.12;
-        for (let k = 0; k < crowdCount; k++) {
-          const px = x0 + 3 + Math.random() * (TILE - 6);
-          const py = y0 + 3 + Math.random() * (TILE - 6);
-          const radius = (1.1 + Math.random() * 1.4) * sizeScale;
-          standsGfx.fillStyle(0x000000, 0.5).fillEllipse(px, py + radius * 1.4, radius * 1.8, radius); // shoulders
-          standsGfx.fillStyle(crowdColors[Math.floor(Math.random() * crowdColors.length)], 1).fillCircle(
-            px,
-            py,
-            radius
-          ); // head
-        }
-      }
-    }
-
-    // Front safety railing right at the track's outer edge.
-    standsGfx.lineStyle(2, 0xdddddd, 0.85);
-    standsGfx.strokeRoundedRect(
-      CENTER_X - OUTER_HALF_W,
-      CENTER_Y - OUTER_HALF_H,
-      OUTER_HALF_W * 2,
-      OUTER_HALF_H * 2,
-      OUTER_RADIUS
-    );
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
