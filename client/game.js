@@ -86,6 +86,7 @@ class MainScene extends Phaser.Scene {
     this.otherMeta = {};
     this.nameTexts = {};
     this.heading = 0;
+    this.touchMoveAngle = null; // joystick: absolute screen direction to move in, null when centered
     this.spinUntil = 0;
     this.nextTurnAt = 0;
     this.raceStarted = false;
@@ -155,28 +156,47 @@ class MainScene extends Phaser.Scene {
     if (!IS_TOUCH_DEVICE) return;
     document.getElementById('touchControls').style.display = 'block';
 
-    const bind = (id, key) => {
-      const el = document.getElementById(id);
-      const setDown = (e) => {
-        e.preventDefault();
-        this.touch[key] = true;
-      };
-      const setUp = (e) => {
-        e.preventDefault();
-        this.touch[key] = false;
-      };
-      el.addEventListener('touchstart', setDown, { passive: false });
-      el.addEventListener('touchend', setUp, { passive: false });
-      el.addEventListener('touchcancel', setUp, { passive: false });
-      el.addEventListener('mousedown', setDown);
-      el.addEventListener('mouseup', setUp);
-      el.addEventListener('mouseleave', setUp);
+    const base = document.getElementById('joystickBase');
+    const knob = document.getElementById('joystickKnob');
+    const maxRadius = 40;
+    const deadzone = 10; // px — ignore tiny deflections so the bike doesn't drift near center
+    let activePointerId = null;
+
+    const updateFromPoint = (clientX, clientY) => {
+      const rect = base.getBoundingClientRect();
+      const dx0 = clientX - (rect.left + rect.width / 2);
+      const dy0 = clientY - (rect.top + rect.height / 2);
+      const dist = Math.hypot(dx0, dy0);
+      const scale = dist > maxRadius ? maxRadius / dist : 1;
+      knob.style.transform = `translate(${dx0 * scale}px, ${dy0 * scale}px)`;
+
+      // 0 = up, clockwise — matches this.heading's convention.
+      this.touchMoveAngle = dist > deadzone ? Math.atan2(dx0, -dy0) : null;
     };
 
-    bind('steerLeft', 'left');
-    bind('steerRight', 'right');
-    bind('throttle', 'up');
-    bind('brake', 'down');
+    const reset = () => {
+      knob.style.transform = 'translate(0px, 0px)';
+      this.touchMoveAngle = null;
+      activePointerId = null;
+    };
+
+    base.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      activePointerId = e.pointerId;
+      base.setPointerCapture(e.pointerId);
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    base.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== activePointerId) return;
+      e.preventDefault();
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    const endHandler = (e) => {
+      if (e.pointerId !== activePointerId) return;
+      reset();
+    };
+    base.addEventListener('pointerup', endHandler);
+    base.addEventListener('pointercancel', endHandler);
   }
 
   create() {
@@ -290,7 +310,6 @@ class MainScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-    this.touch = { left: false, right: false, up: false, down: false };
     this.setupTouchControls();
     this.otherPlayersGroup = this.physics.add.group();
 
@@ -573,11 +592,19 @@ class MainScene extends Phaser.Scene {
       this.heading += Phaser.Math.DegToRad(SPIN_RATE_DEG);
       this.player.rotation = this.heading;
       this.player.body.setVelocity(0, 0);
+    } else if (this.touchMoveAngle !== null) {
+      // Joystick: bike moves directly in whatever screen direction it's pushed.
+      this.heading = this.touchMoveAngle;
+      this.player.rotation = this.heading;
+      this.player.body.setVelocity(
+        Math.sin(this.heading) * FORWARD_SPEED,
+        -Math.cos(this.heading) * FORWARD_SPEED
+      );
     } else {
-      const left = this.cursors.left.isDown || this.wasd.A.isDown || this.touch.left;
-      const right = this.cursors.right.isDown || this.wasd.D.isDown || this.touch.right;
-      const up = this.cursors.up.isDown || this.wasd.W.isDown || this.touch.up;
-      const down = this.cursors.down.isDown || this.wasd.S.isDown || this.touch.down;
+      const left = this.cursors.left.isDown || this.wasd.A.isDown;
+      const right = this.cursors.right.isDown || this.wasd.D.isDown;
+      const up = this.cursors.up.isDown || this.wasd.W.isDown;
+      const down = this.cursors.down.isDown || this.wasd.S.isDown;
 
       if ((left || right) && time >= this.nextTurnAt) {
         this.heading += Phaser.Math.DegToRad(TURN_STEP_DEG) * (right ? 1 : -1);
