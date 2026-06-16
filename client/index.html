@@ -92,42 +92,18 @@
       pointer-events: auto;
     }
     .touchBtn:active { background: rgba(255, 255, 255, 0.35); }
+    #steerLeft { left: 16px; bottom: 32px; }
+    #steerRight { left: 96px; bottom: 32px; }
     #throttle { right: 16px; bottom: 104px; }
     #brake { right: 16px; bottom: 32px; }
-
-    #joystickBase {
-      position: absolute;
-      left: 24px;
-      bottom: 24px;
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.12);
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      touch-action: none;
-      pointer-events: auto;
-    }
-    #joystickKnob {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 50px;
-      height: 50px;
-      margin-left: -25px;
-      margin-top: -25px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.4);
-      pointer-events: none;
-    }
   </style>
 </head>
 <body>
   <div id="game"></div>
 
   <div id="touchControls">
-    <div id="joystickBase">
-      <div id="joystickKnob"></div>
-    </div>
+    <div id="steerLeft" class="touchBtn">&#8592;</div>
+    <div id="steerRight" class="touchBtn">&#8594;</div>
     <div id="throttle" class="touchBtn">&#9650;</div>
     <div id="brake" class="touchBtn">&#9660;</div>
   </div>
