@@ -6,10 +6,32 @@
   <style>
     html, body { margin: 0; padding: 0; background: #111; overflow: hidden; }
     #game { display: block; margin: 0 auto; }
+    #readyOverlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 10;
+    }
+    #readyBtn {
+      font-size: 24px;
+      padding: 16px 32px;
+      border-radius: 8px;
+      border: none;
+      background: #3399ff;
+      color: white;
+      cursor: pointer;
+    }
+    #readyBtn:hover { background: #2277dd; }
   </style>
 </head>
 <body>
   <div id="game"></div>
+  <div id="readyOverlay">
+    <button id="readyBtn">Ready to Race</button>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
