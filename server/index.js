@@ -111,9 +111,20 @@ function startRace(racers) {
 }
 
 function checkRaceEnd() {
-  if (phase !== 'racing') return;
+  if (phase !== 'racing' && phase !== 'countdown') return;
   const racers = racingOrder.map((id) => players.get(id)).filter(Boolean);
-  if (racers.length > 0 && racers.every((p) => p.finished)) endRace(racers);
+
+  if (racers.length === 0) {
+    // Every racer left before finishing (or before the race even started) —
+    // there's no one left to race, so don't get stuck outside the lobby.
+    racingOrder = [];
+    phase = 'lobby';
+    recalcSlots();
+    broadcastLobby();
+    return;
+  }
+
+  if (phase === 'racing' && racers.every((p) => p.finished)) endRace(racers);
 }
 
 function endRace(racers) {
@@ -191,7 +202,7 @@ io.on('connection', (socket) => {
     if (phase === 'lobby') recalcSlots();
     io.emit('playerLeft', { id: socket.id });
     broadcastLobby();
-    if (phase === 'racing') checkRaceEnd();
+    if (phase === 'racing' || phase === 'countdown') checkRaceEnd();
   });
 });
 
