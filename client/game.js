@@ -86,6 +86,7 @@ class MainScene extends Phaser.Scene {
     this.otherMeta = {};
     this.nameTexts = {};
     this.heading = 0;
+    this.touchSteerAngle = null; // joystick target heading (absolute, screen-relative), null when centered
     this.spinUntil = 0;
     this.nextTurnAt = 0;
     this.raceStarted = false;
@@ -184,6 +185,8 @@ class MainScene extends Phaser.Scene {
     const maxRadius = 35;
     let activePointerId = null;
 
+    const deadzone = 10; // px — ignore tiny deflections so the bike doesn't jitter near center
+
     const updateFromPoint = (clientX, clientY) => {
       const rect = base.getBoundingClientRect();
       const dx0 = clientX - (rect.left + rect.width / 2);
@@ -194,15 +197,14 @@ class MainScene extends Phaser.Scene {
       const dy = dy0 * scale;
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
 
-      const norm = dx / maxRadius;
-      this.touch.left = norm < -0.3;
-      this.touch.right = norm > 0.3;
+      // Steer toward wherever the stick is pointing on screen (0 = up, clockwise),
+      // matching the same convention as this.heading.
+      this.touchSteerAngle = dist > deadzone ? Math.atan2(dx0, -dy0) : null;
     };
 
     const reset = () => {
       knob.style.transform = 'translate(0px, 0px)';
-      this.touch.left = false;
-      this.touch.right = false;
+      this.touchSteerAngle = null;
       activePointerId = null;
     };
 
@@ -615,7 +617,7 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  update(time) {
+  update(time, delta) {
     if (!this.player) return;
 
     const spinning = time < this.spinUntil;
@@ -627,16 +629,24 @@ class MainScene extends Phaser.Scene {
       this.player.rotation = this.heading;
       this.player.body.setVelocity(0, 0);
     } else {
-      const left = this.cursors.left.isDown || this.wasd.A.isDown || this.touch.left;
-      const right = this.cursors.right.isDown || this.wasd.D.isDown || this.touch.right;
-      const up = this.cursors.up.isDown || this.wasd.W.isDown || this.touch.up;
-      const down = this.cursors.down.isDown || this.wasd.S.isDown || this.touch.down;
-
-      if ((left || right) && time >= this.nextTurnAt) {
-        this.heading += Phaser.Math.DegToRad(TURN_STEP_DEG) * (right ? 1 : -1);
-        this.nextTurnAt = time + TURN_INTERVAL_MS;
+      if (this.touchSteerAngle !== null) {
+        // Joystick: steer toward wherever the stick is pointing on screen.
+        let diff = this.touchSteerAngle - this.heading;
+        diff = ((diff + Math.PI) % (2 * Math.PI)) - Math.PI; // shortest direction, range (-PI, PI]
+        const maxStep = Phaser.Math.DegToRad(220) * (delta / 1000);
+        this.heading += Phaser.Math.Clamp(diff, -maxStep, maxStep);
+      } else {
+        // Keyboard: discrete relative turning.
+        const left = this.cursors.left.isDown || this.wasd.A.isDown;
+        const right = this.cursors.right.isDown || this.wasd.D.isDown;
+        if ((left || right) && time >= this.nextTurnAt) {
+          this.heading += Phaser.Math.DegToRad(TURN_STEP_DEG) * (right ? 1 : -1);
+          this.nextTurnAt = time + TURN_INTERVAL_MS;
+        }
       }
 
+      const up = this.cursors.up.isDown || this.wasd.W.isDown || this.touch.up;
+      const down = this.cursors.down.isDown || this.wasd.S.isDown || this.touch.down;
       const speed = up ? FORWARD_SPEED : down ? -REVERSE_SPEED : 0;
       this.player.rotation = this.heading;
       this.player.body.setVelocity(Math.sin(this.heading) * speed, -Math.cos(this.heading) * speed);
