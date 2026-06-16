@@ -339,6 +339,9 @@ class MainScene extends Phaser.Scene {
     this.resultsOverlay = document.getElementById('resultsOverlay');
     this.resultsList = document.getElementById('resultsList');
     this.finishBtn = document.getElementById('finishBtn');
+    this.loserOverlay = document.getElementById('loserOverlay');
+    this.loserMessage = document.getElementById('loserMessage');
+    this.loserAgreeBtn = document.getElementById('loserAgreeBtn');
 
     this.readyBtn.addEventListener('click', () => {
       this.socket.emit('ready');
@@ -346,12 +349,27 @@ class MainScene extends Phaser.Scene {
       this.lobbyStatus.textContent = 'Waiting for other racers...';
     });
 
-    this.finishBtn.addEventListener('click', () => {
+    const returnToLobby = () => {
       this.resultsShowing = false;
       this.resultsOverlay.style.display = 'none';
+      this.loserOverlay.style.display = 'none';
       this.renderLobby(this.lastLobbyPlayers);
       this.lobbyOverlay.style.display = 'flex';
+    };
+
+    this.finishBtn.addEventListener('click', () => {
+      const standings = this.lastStandings || [];
+      if (standings.length > 1) {
+        const lastPlace = standings[standings.length - 1];
+        this.resultsOverlay.style.display = 'none';
+        this.loserMessage.textContent = `${lastPlace.name} finished last!`;
+        this.loserOverlay.style.display = 'flex';
+      } else {
+        returnToLobby();
+      }
     });
+
+    this.loserAgreeBtn.addEventListener('click', returnToLobby);
 
     this.socket = io({ query: { name: playerName } });
 
@@ -403,6 +421,7 @@ class MainScene extends Phaser.Scene {
 
     this.socket.on('raceResults', ({ standings }) => {
       this.resultsShowing = true;
+      this.lastStandings = standings;
       this.renderResults(standings);
       this.lobbyOverlay.style.display = 'none';
       this.resultsOverlay.style.display = 'flex';
